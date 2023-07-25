@@ -173,23 +173,44 @@ class SerialSplit:
         global ser
         try:
             serial_data = ""
-
-            if not ser.isOpen():
-                log.debug(" ##### Opening serial port")
-                ser = serial.Serial('/dev/ttyS0', 9600, timeout=5)
+            data_acquired = False
 
             if self.production:
-                ser.flushInput()
-                serial_data = ser.readline().decode(encoding='utf-8', errors='strict').strip('\r\n').split(sep=',')
-                log.debug(" ##### serial_io_run data: {}".format(serial_data))
 
-            # read data from sensors, ensure the list is complete as order matters
-            if len(serial_data) == 5:
-                idx = 0
-                for sensor in self.sensors:
-                    ipc_topic = "{}{}".format(self.ipc_out_prefix, sensor)
-                    self.transmit_update(ipc_topic, (serial_data[idx]))
-                    idx = idx + 1
+                while not data_acquired:
+
+                    if not ser.isOpen():
+                        try:
+                            ser = serial.Serial('/dev/ttyS0', 9600, timeout=5)
+                        except Exception:
+                            log.error("#### ERROR:  {}".format(traceback.format_exc()))
+
+                    try:
+                        ser.flushInput()
+                        serial_data = ser.readline().decode(encoding='utf-8', errors='strict').strip('\r\n').split(sep=',')
+
+                        # ensure serial_data list is complete as order matters
+                        if not len(serial_data) == 5:
+                            continue
+
+                        # remove noise from serial data
+                        for i in range(0, 5):
+                            serial_data[i] = serial_data[i][-3:]
+
+                        log.debug(" ##### serial_io_run data: {}".format(serial_data))
+                        data_acquired = True
+
+                    except Exception:
+                        log.error("#### ERROR reading data from serial:  {}".format(traceback.format_exc()))
+                        continue
+                    finally:
+                        ser.close()
+
+            idx = 0
+            for sensor in self.sensors:
+                ipc_topic = "{}{}".format(self.ipc_out_prefix, sensor)
+                self.transmit_update(ipc_topic, (serial_data[idx]))
+                idx = idx + 1
 
             # send led commands only if running on digital twin platform
             if self.led_changed:
